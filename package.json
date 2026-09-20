@@ -1,0 +1,15 @@
+{
+  "name": "voice-clip-bench",
+  "version": "1.0.0",
+  "description": "采样精确的本地语音片段整理与导出工作台（单声道 16-bit PCM WAV）",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

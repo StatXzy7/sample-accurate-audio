@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>语音片段工作台 · 采样精确</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <h1>语音片段工作台</h1>
+        <p class="subtitle">单声道 16-bit PCM · 左闭右开 <code>[start, end)</code> · 边界以采样点为准</p>
+      </div>
+    </div>
+    <div class="source-meta" id="sourceMeta">
+      <span class="meta-dot" aria-hidden="true"></span>
+      <span id="sourceMetaText">尚未载入素材</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- 左：素材与波形 -->
+    <section class="panel panel-source" aria-labelledby="sourceHeading">
+      <div class="panel-head">
+        <h2 id="sourceHeading">素材波形</h2>
+        <div class="load-row">
+          <label class="btn btn-secondary">
+            导入 WAV
+            <input type="file" id="fileInput" accept=".wav,audio/wav,audio/wave,audio/x-wav" hidden />
+          </label>
+          <button class="btn btn-secondary" id="genToneBtn" type="button">载入程序生成音频</button>
+          <button class="btn btn-ghost" id="playSourceBtn" type="button" disabled>试听选区</button>
+        </div>
+      </div>
+
+      <div class="waveframe" id="waveframe">
+        <canvas id="waveCanvas"></canvas>
+        <div class="wave-hint" id="waveHint">在波形上按住鼠标拖选一段，或在右侧直接输入时间 / 采样编号</div>
+        <div class="ruler" id="ruler"></div>
+      </div>
+
+      <div class="readout-strip">
+        <div class="readout">
+          <span class="readout-label">拖选起点</span>
+          <span class="readout-value" id="selStartSample">—</span>
+          <span class="readout-unit">采样</span>
+        </div>
+        <div class="readout">
+          <span class="readout-label">拖选终点</span>
+          <span class="readout-value" id="selEndSample">—</span>
+          <span class="readout-unit">采样（不含）</span>
+        </div>
+        <div class="readout">
+          <span class="readout-label">选区时长</span>
+          <span class="readout-value" id="selLenSample">—</span>
+          <span class="readout-unit">采样</span>
+        </div>
+      </div>
+
+      <form class="add-form" id="addForm">
+        <h3>按时间或采样编号建立片段</h3>
+        <div class="bound-grid">
+          <div class="bound-field">
+            <label for="startMs">起点 (ms)</label>
+            <input id="startMs" type="number" min="0" step="0.001" inputmode="decimal" />
+          </div>
+          <div class="bound-field bound-sample">
+            <label for="startSample">起点采样 #</label>
+            <input id="startSample" type="number" min="0" step="1" inputmode="numeric" />
+          </div>
+          <div class="bound-field">
+            <label for="endMs">终点 (ms)</label>
+            <input id="endMs" type="number" min="0" step="0.001" inputmode="decimal" />
+          </div>
+          <div class="bound-field bound-sample">
+            <label for="endSample">终点采样 #（不含）</label>
+            <input id="endSample" type="number" min="1" step="1" inputmode="numeric" />
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" id="addClipBtn" type="submit" disabled>添加片段</button>
+          <span class="rounding-note">ms → 采样：<code>Math.round(ms/1000 × 采样率)</code>（0.5 向上）</span>
+        </div>
+      </form>
+    </section>
+
+    <!-- 右：片段清单与参数 -->
+    <section class="panel panel-clips" aria-labelledby="clipsHeading">
+      <div class="panel-head">
+        <h2 id="clipsHeading">片段序列 <span class="count-badge" id="clipCount">0</span></h2>
+        <button class="btn btn-ghost danger" id="resetBtn" type="button" disabled>恢复原始编辑状态</button>
+      </div>
+
+      <div class="clip-list" id="clipList">
+        <p class="empty-note" id="emptyClips">尚无片段。拖选波形或输入边界后点击“添加片段”。同一来源区间可被重复引用。</p>
+      </div>
+
+      <div class="params-card">
+        <h3>拼接参数</h3>
+        <div class="param-row">
+          <div class="param-field">
+            <label for="gapMs">相邻片段静音 (ms)</label>
+            <input id="gapMs" type="number" min="0" step="1" value="0" />
+          </div>
+          <div class="param-field param-static">
+            <span class="param-static-label">折合采样</span>
+            <strong id="gapSamples">0</strong> samples
+          </div>
+        </div>
+        <p class="rule-note">淡入 / 淡出按片段单独设置；淡化只乘增益，不改变长度；两者范围不得重叠。</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- 输出条 -->
+  <section class="panel panel-output" aria-labelledby="outputHeading">
+    <div class="panel-head output-head">
+      <h2 id="outputHeading">拼接输出预览</h2>
+      <div class="output-stats">
+        <span class="stat"><em id="outSamples">0</em> samples</span>
+        <span class="stat"><em id="outDuration">0.000</em> ms</span>
+        <button class="btn btn-ghost" id="playOutputBtn" type="button" disabled>试听输出</button>
+        <button class="btn btn-primary" id="exportBtn" type="button" disabled>导出 WAV + 来源说明</button>
+      </div>
+    </div>
+    <div class="out-waveframe">
+      <canvas id="outCanvas"></canvas>
+    </div>
+  </section>
+
+  <div class="statusbar" id="statusbar" role="status" aria-live="polite">
+    <span class="status-icon" aria-hidden="true">●</span>
+    <span id="statusText">就绪。载入素材后开始。</span>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
