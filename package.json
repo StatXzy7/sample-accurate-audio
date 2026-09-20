@@ -1,0 +1,14 @@
+{
+  "name": "sample-accurate-audio",
+  "version": "1.0.0",
+  "description": "本地采样精确的语音训练片段整理工具（单声道 16-bit PCM WAV）",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}

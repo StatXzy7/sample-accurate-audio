@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>采样精确 · 语音训练片段整理</title>
+  <link rel="stylesheet" href="./web/styles.css">
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <div class="brand">
+        <span class="brand-mark">∥</span>
+        <div>
+          <h1>采样精确训练片段整理</h1>
+          <p class="tagline">单声道 16-bit PCM WAV · 边界以采样点为准 · 左闭右开 <code>[start, end)</code> · 全程本地，原始素材不变</p>
+        </div>
+      </div>
+      <div class="source-actions">
+        <label class="btn primary" for="file-input">导入 WAV</label>
+        <input id="file-input" type="file" accept=".wav,audio/wav,audio/x-wav,audio/wave" hidden>
+        <button type="button" id="load-synthetic" class="btn ghost">加载生成素材</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- 左：素材与建片段 -->
+    <section class="panel span-2">
+      <div class="panel-head">
+        <h2>① 源素材波形</h2>
+        <div id="source-meta" class="meta-row">未加载素材</div>
+      </div>
+      <div class="canvas-wrap">
+        <canvas id="source-canvas" aria-label="源素材波形，可拖选区间"></canvas>
+      </div>
+      <div class="selection-bar">
+        <span id="selection-info" class="selection-info">在波形上按住拖选；区间为左闭右开</span>
+        <button type="button" id="use-selection" class="btn mini">用拖选填充</button>
+      </div>
+
+      <form id="clip-form" class="clip-form">
+        <h3>新建片段（时间与采样编号同步）</h3>
+        <div class="form-grid">
+          <label>起始时间（秒）
+            <input id="start-time" type="number" min="0" step="any" placeholder="例如 0.125">
+          </label>
+          <label>结束时间（秒）
+            <input id="end-time" type="number" min="0" step="any" placeholder="例如 0.25">
+          </label>
+          <label>起始采样 <em>start</em>
+            <input id="start-sample" type="number" min="0" step="1" inputmode="numeric" data-label="起始采样" placeholder="1000">
+          </label>
+          <label>结束采样 <em>end（不含）</em>
+            <input id="end-sample" type="number" min="0" step="1" inputmode="numeric" data-label="结束采样" placeholder="2000">
+          </label>
+          <label>淡入（毫秒）
+            <input id="fade-in-ms" type="number" min="0" step="0.0625" value="0">
+          </label>
+          <label>淡出（毫秒）
+            <input id="fade-out-ms" type="number" min="0" step="0.0625" value="0">
+          </label>
+        </div>
+        <p class="rule-note">
+          毫秒换算：<code>roundHalfAwayFromZero(ms/1000 × 采样率)</code>（0.5 向上）；
+          淡入淡出范围不得重叠，只乘幅度、不改长度。
+        </p>
+        <div class="form-foot">
+          <span id="form-error" class="inline-error" role="alert"></span>
+          <button type="submit" class="btn primary">＋ 添加片段</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- 右：规则说明 -->
+    <aside class="panel rules">
+      <h2>规则与端点</h2>
+      <dl>
+        <dt>区间</dt>
+        <dd>左闭右开 <code>[start, end)</code>，长度 <code>end − start</code>；零长度、越界、结束早于开始均拒绝。</dd>
+        <dt>淡入 F 个采样</dt>
+        <dd>片段下标 <code>i ∈ [0, F−1]</code> 增益 <code>i / F</code>；<code>i = F</code> 时为 1（已在淡化区外）。</dd>
+        <dt>淡出 F 个采样</dt>
+        <dd><code>i ∈ [L−F, L−1]</code> 增益 <code>(L−i) / F</code>；右端点 <code>i = L</code> 不属片段。</dd>
+        <dt>量化</dt>
+        <dd>先夹取 <code>[−32768, 32767]</code>，再四舍五入（0.5 向远离 0）。</dd>
+        <dt>静音</dt>
+        <dd>相邻片段间插入指定数量的零采样；片段长度不变。</dd>
+      </dl>
+    </aside>
+
+    <!-- 片段列表 -->
+    <section class="panel span-3">
+      <div class="panel-head">
+        <h2>② 片段顺序（可重排 · 删除 · 重复引用同一区间）</h2>
+      </div>
+      <table id="clip-list" class="clip-table" data-empty="true">
+        <thead>
+          <tr>
+            <th>#</th><th>来源区间（采样 / 时间）</th>
+            <th>淡入</th><th>淡出</th><th class="actions">操作</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p class="empty-hint">尚无片段。请在上方拖选或输入区间后添加 —— 无片段时不能导出。</p>
+    </section>
+
+    <!-- 输出 -->
+    <section class="panel span-3 output-panel">
+      <div class="panel-head row-between">
+        <h2>③ 拼接输出（实时预览）</h2>
+        <div class="silence-control">
+          相邻静音
+          <label><input id="silence-samples" type="number" min="0" step="1" value="0"> 采样</label>
+          <span id="silence-ms" class="sub"></span>
+        </div>
+      </div>
+      <div id="output-meta" class="meta-row">—</div>
+      <div class="canvas-wrap">
+        <canvas id="output-canvas" aria-label="输出波形预览"></canvas>
+      </div>
+
+      <div class="export-bar">
+        <button type="button" id="export-btn" class="btn export">导出 WAV + 来源说明</button>
+        <button type="button" id="reset-btn" class="btn ghost">恢复原始编辑</button>
+        <span id="export-error" class="inline-error" role="alert"></span>
+      </div>
+
+      <div class="preview-row">
+        <audio id="preview-audio" controls preload="none"></audio>
+      </div>
+
+      <details class="manifest-details">
+        <summary>最近一次来源说明（manifest.json：每段来源区间、静音长度、最终输出位置）</summary>
+        <pre id="manifest-box" class="manifest-box">尚未导出。</pre>
+      </details>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="./web/app.js"></script>
+</body>
+</html>
